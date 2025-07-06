@@ -140,7 +140,8 @@ trainer = SFTTrainer(
         seed=3407,
         output_dir="./checkpoints",
         save_total_limit=2,
-        fp16=True,
+        fp16=False,
+        bf16=True
     ),
 )
 
