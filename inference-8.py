@@ -210,10 +210,27 @@ def load_model(model_path: str = "temporal_model_full.pth"):
     
     # Load model weights
     try:
-        model.load_state_dict(torch.load(model_path, map_location=config.device))
+        state_dict = torch.load(model_path, map_location=config.device)
+        
+        # Handle PyTorch Lightning state dict format
+        if any(key.startswith('model.') for key in state_dict.keys()):
+            # Remove 'model.' prefix from keys
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                if key.startswith('model.'):
+                    new_key = key[6:]  # Remove 'model.' prefix
+                    new_state_dict[new_key] = value
+                else:
+                    new_state_dict[key] = value
+            state_dict = new_state_dict
+        
+        model.load_state_dict(state_dict, strict=False)
         print(f"Model loaded from {model_path}")
     except FileNotFoundError:
         print(f"Model file {model_path} not found. Using untrained model.")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        print("Using untrained model.")
     
     model.to(config.device)
     model.eval()
