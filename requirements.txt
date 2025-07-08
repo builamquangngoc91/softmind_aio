@@ -16,3 +16,7 @@ hf_transfer
 gdown
 transformers>=4.51.3
 pandas
+pytorch-lightning
+python-dateutil
+scikit-learn
+numpy
