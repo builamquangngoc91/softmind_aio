@@ -10,6 +10,8 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"
 )
 
+import os
+
 from huggingface_hub import login
 login(os.getenv("HF_TOKEN"))
 
