@@ -1,14 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model_name = "Qwen/Qwen3-4B"
-
-# load the tokenizer and the model
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    torch_dtype="auto",
-    device_map="auto"
-)
 
 import os
 
@@ -17,96 +8,5 @@ login(os.getenv("HF_TOKEN"))
 
 from datasets import load_dataset
 dataset = load_dataset("thailevann/vlsp_legal_pretrain")
-
-def gen_data(relevant_doc, task):
-    prompt = f"""
-    Bạn là một trợ lý pháp lý. Dựa vào tài liệu sau, hãy tạo một câu hỏi pháp lý thuộc dạng: {task},  
-    và cung cấp hai bộ câu trả lời:
-    
-    1. Một **câu trả lời đúng**, kèm theo **lý do hợp lý (chosen_reason)**: viện dẫn chính xác điều luật, phân tích đúng trọng tâm nội dung.
-    
-    2. Một **câu trả lời sai**, kèm theo **một chuỗi suy nghĩ sai (rejected_reason)**: đây là một quá trình suy luận **có vẻ hợp lý nhưng dẫn đến sai lệch**.  
-    `rejected_reason` phải thể hiện cách một người đọc hiểu nhầm luật, **suy diễn sai**, hoặc **suy nghĩ chưa đầy đủ**, từ đó dẫn đến câu trả lời sai.
-    
-    ⚠️ Lưu ý quan trọng:
-    - `rejected_reason` KHÔNG phải là lời phê bình hay đánh giá câu sai.
-    - KHÔNG được nói kiểu: “Câu này sai vì...”, “Điều đó không đúng...”, “Luật nói rõ rằng...”
-    - Thay vào đó, hãy viết theo phong cách **người đang tự suy nghĩ một cách chủ quan**, chẳng hạn:
-        - "Tôi thấy trong luật có nhắc đến đầu tư, nên tôi cho rằng mọi hình thức đầu tư đều bị điều chỉnh, kể cả đầu tư bất động sản."
-        - "Tôi nghĩ vì luật không nói rõ, nên điều đó không thuộc phạm vi điều chỉnh."
-    
-    📚 Tài liệu pháp lý:
-    \"\"\"
-    {relevant_doc}
-    \"\"\"
-    
-    Trả về dưới dạng JSON:
-    {{
-        "question": "...",
-        "chosen_answer": "...",
-        "chosen_reason": "...",
-        "rejected_answer": "...",
-        "rejected_reason": "..."
-    }}
-    """
-
-
-
-    messages = [
-        {"role": "user", "content": prompt}
-    ]
-    text = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=False # Switches between thinking and non-thinking modes. Default is True.
-    )
-    model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
-    
-    # conduct text completion
-    generated_ids = model.generate(
-        **model_inputs,
-        max_new_tokens=8024
-    )
-    output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
-    
-    # parsing thinking content
-    try:
-        # rindex finding 151668 (</think>)
-        index = len(output_ids) - output_ids[::-1].index(151668)
-    except ValueError:
-        index = 0
-    
-    content = tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n")
-    return content
-        
-from datetime import datetime
-
-def get_relevant(index):
-    relevant_content = dataset['train'].select([index])['chunk']
-    relevant_meta = dataset['train'].select([index])['metadata']
-    
-
-    issue_date = relevant_meta[0]['metadata']['IssueDate']
-    formatted_date = f"ngày {issue_date.day} tháng {issue_date.month} năm {issue_date.year}"
-    relevant = f"""
-    Theo luật số {relevant_meta[0]['metadata']['DocIdentity']}, {relevant_meta[0]['metadata']['OrganName']} ban hành luật {relevant_meta[0]['metadata']['DocName']}  vào {formatted_date}:
-    {relevant_content}
-    """
-    return relevant
-    
-import json
-import re
-
-def clean_json_block(text):
-    # Loại bỏ ```json và ```
-    text = re.sub(r"^```json\n", "", text.strip())
-    text = re.sub(r"\n```$", "", text.strip())
-    return json.loads(text)
-
-import random
-import json
-
-output_path = "output1.jsonl"
 
 print(f"Number of samples: {len(dataset['train'])}")
