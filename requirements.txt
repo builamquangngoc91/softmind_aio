@@ -20,3 +20,4 @@ pytorch-lightning
 python-dateutil
 scikit-learn
 numpy
+vllm
