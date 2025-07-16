@@ -86,17 +86,20 @@ def gen_data(relevant_doc, task):
 from datetime import datetime
 
 def get_relevant(index):
-    relevant_content = dataset['train'].select([index])['chunk']
-    relevant_meta = dataset['train'].select([index])['metadata']
-    
-
-    issue_date = relevant_meta[0]['metadata']['IssueDate']
-    formatted_date = f"ngày {issue_date.day} tháng {issue_date.month} năm {issue_date.year}"
-    relevant = f"""
-    Theo luật số {relevant_meta[0]['metadata']['DocIdentity']}, {relevant_meta[0]['metadata']['OrganName']} ban hành luật {relevant_meta[0]['metadata']['DocName']}  vào {formatted_date}:
-    {relevant_content}
-    """
-    return relevant
+    try:
+        relevant_content = dataset['train'].select([index])['chunk']
+        relevant_meta = dataset['train'].select([index])['metadata']
+        
+        issue_date = relevant_meta[0]['metadata']['IssueDate']
+        formatted_date = f"ngày {issue_date.day} tháng {issue_date.month} năm {issue_date.year}"
+        relevant = f"""
+        Theo luật số {relevant_meta[0]['metadata']['DocIdentity']}, {relevant_meta[0]['metadata']['OrganName']} ban hành luật {relevant_meta[0]['metadata']['DocName']}  vào {formatted_date}:
+        {relevant_content}
+        """
+        return relevant
+    except Exception as e:
+        logger.error(f"Error getting relevant data for index {index}: {e}")
+        return None
     
 import json
 import re
@@ -148,10 +151,22 @@ else:
 
 logger.info(f"Output will be saved to: {output_path}")
 
+# Create missing results file name
+missing_path = output_path.replace('.json', '_missing.json')
+logger.info(f"Missing indices will be saved to: {missing_path}")
+
 for j in range(start_j, end_j):
     logger.info(f"Processing document {j}/{end_j-1}")
     # 1. Lấy 1 đoạn tài liệu chính
     relevant1 = get_relevant(j)
+    
+    # Check if get_relevant failed
+    if relevant1 is None:
+        logger.warning(f"Skipping document {j} due to get_relevant error")
+        # Save missing index
+        with open(missing_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"missing_index": j, "error": "get_relevant_failed"}, ensure_ascii=False) + "\n")
+        continue
 
     # 2. Sinh câu hỏi từ tài liệu chính
     for i in range(3):
@@ -190,7 +205,14 @@ for j in range(start_j, end_j):
 
         list_num.append(random_number)
         relevant2 = get_relevant(random_number)
-        relevant_str += relevant2 + "\n"
+        if relevant2 is not None:
+            relevant_str += relevant2 + "\n"
+        else:
+            logger.warning(f"Skipping document {j} due to get_relevant error")
+            # Save missing index
+            with open(missing_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"missing_index": j, "error": "get_relevant_failed"}, ensure_ascii=False) + "\n")
+            continue
 
     # 4. Sinh câu hỏi từ đoạn ghép
     for i in range(3):
