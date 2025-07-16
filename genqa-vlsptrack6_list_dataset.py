@@ -109,4 +109,98 @@ import json
 
 output_path = "output1.jsonl"
 
-print(f"Number of samples: {len(dataset['train'])}")
+for j in range(len(dataset['train'])):
+    # 1. Lấy 1 đoạn tài liệu chính
+    relevant1 = get_relevant(j)
+
+    # 2. Sinh câu hỏi từ tài liệu chính
+    for i in range(3):
+        if i == 0:
+            task = "Đánh giá tính hữu ích của trích dẫn pháp luật: Xác định liệu một trích dẫn pháp luật có hữu ích để trả lời câu hỏi pháp lý hay không (phân loại Đúng/Sai)"
+        elif i == 1:
+            task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm nhiều lựa chọn"
+        else:
+            task = "Câu hỏi tự luận pháp luật: Sinh câu trả lời tự do, đầy đủ và mạch lạc cho các câu hỏi pháp lý bằng tiếng Việt"
+
+        qa_raw = gen_data(relevant1, task)
+        if isinstance(qa_raw, str):
+            try:
+                qa = clean_json_block(qa_raw)
+            except Exception as e:
+                print(f"❌ Lỗi parse JSON tại index {j}, task: {task}: {e}")
+                continue
+        else:
+            qa = qa_raw
+        # Ghi nếu hợp lệ
+        if isinstance(qa, dict):
+            with open(output_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(qa, ensure_ascii=False) + "\n")
+   
+    
+    # 3. Ghép thêm 1–3 tài liệu khác
+    relevant_str = relevant1 + "\n"
+    list_num = []
+    random_number_law = random.randint(1, 4)
+
+    for _ in range(random_number_law):
+        random_number = random.randint(0, len(dataset['train']) - 1)
+        while random_number in list_num or random_number == j:
+            random_number = random.randint(0, len(dataset['train']) - 1)
+
+        list_num.append(random_number)
+        relevant2 = get_relevant(random_number)
+        relevant_str += relevant2 + "\n"
+
+    # 4. Sinh câu hỏi từ đoạn ghép
+    for i in range(3):
+        if i == 0:
+            task = "Đánh giá tính hữu ích của trích dẫn pháp luật: Xác định liệu một trích dẫn pháp luật có hữu ích để trả lời câu hỏi pháp lý hay không (phân loại Đúng/Sai)"
+        elif i == 1:
+            task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm nhiều lựa chọn"
+        else:
+            task = "Câu hỏi tự luận pháp luật: Sinh câu trả lời tự do, đầy đủ và mạch lạc cho các câu hỏi pháp lý bằng tiếng Việt"
+
+        qa_raw = gen_data(relevant_str, task)
+        if isinstance(qa_raw, str):
+            try:
+                qa = clean_json_block(qa_raw)
+            except Exception as e:
+                print(f"❌ Lỗi parse JSON tại index {j}, task: {task}: {e}")
+                continue
+        else:
+            qa = qa_raw
+        # Ghi nếu hợp lệ
+        if isinstance(qa, dict):
+            with open(output_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(qa, ensure_ascii=False) + "\n")
+   
+    print(f"✅ Đã sinh và ghi dữ liệu cho mẫu #{j}")
+
+from huggingface_hub import HfApi
+from huggingface_hub import upload_file
+
+repo_id = "thailevann/QA_VLSP_track6"
+api = HfApi()
+
+try:
+    api.create_repo(
+        repo_id=repo_id,
+        repo_type="dataset",
+        private=True,
+        exist_ok=True  # Không lỗi nếu repo đã tồn tại
+    )
+    print(f"✅ Repo `{repo_id}` đã được tạo (hoặc đã tồn tại).")
+except HfHubHTTPError as e:
+    print(f"❌ Lỗi khi tạo repo: {e}")
+
+# 3. Upload file
+try:
+    upload_file(
+        path_or_fileobj="output.jsonl",
+        path_in_repo="data/output.jsonl",
+        repo_id=repo_id,
+        repo_type="dataset"
+    )
+    print("✅ Đã upload file output.jsonl lên Hugging Face.")
+except Exception as e:
+    print(f"❌ Upload thất bại: {e}")
