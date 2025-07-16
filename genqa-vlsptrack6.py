@@ -133,17 +133,17 @@ args = parser.parse_args()
 if args.single_index is not None:
     start_j = args.single_index
     end_j = args.single_index + 1
-    output_path = f"output_{start_j}.jsonl"
+    output_path = f"output_{start_j}.json"
     logger.info(f"Processing single index: {args.single_index}")
 elif args.end_index is not None:
     start_j = args.start_index
     end_j = args.end_index
-    output_path = f"output_{start_j}_{end_j-1}.jsonl"
+    output_path = f"output_{start_j}_{end_j-1}.json"
     logger.info(f"Processing range: {start_j} to {end_j-1}")
 else:
     start_j = args.start_index
     end_j = len(dataset['train'])
-    output_path = f"output_{start_j}_end.jsonl"
+    output_path = f"output_{start_j}_end.json"
     logger.info(f"Processing from index {start_j} to end of dataset")
 
 logger.info(f"Output will be saved to: {output_path}")
@@ -218,32 +218,3 @@ for j in range(start_j, end_j):
    
     logger.info(f"✅ Đã sinh và ghi dữ liệu cho mẫu #{j}")
     print(f"✅ Đã sinh và ghi dữ liệu cho mẫu #{j}")
-
-from huggingface_hub import HfApi
-from huggingface_hub import upload_file
-
-repo_id = "thailevann/QA_VLSP_track6"
-api = HfApi()
-
-try:
-    api.create_repo(
-        repo_id=repo_id,
-        repo_type="dataset",
-        private=True,
-        exist_ok=True  # Không lỗi nếu repo đã tồn tại
-    )
-    print(f"✅ Repo `{repo_id}` đã được tạo (hoặc đã tồn tại).")
-except HfHubHTTPError as e:
-    print(f"❌ Lỗi khi tạo repo: {e}")
-
-# 3. Upload file
-try:
-    upload_file(
-        path_or_fileobj="output.jsonl",
-        path_in_repo="data/output.jsonl",
-        repo_id=repo_id,
-        repo_type="dataset"
-    )
-    print("✅ Đã upload file output.jsonl lên Hugging Face.")
-except Exception as e:
-    print(f"❌ Upload thất bại: {e}")
