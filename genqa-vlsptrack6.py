@@ -1,4 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 import argparse
 import logging
 import sys
@@ -113,6 +114,9 @@ def clean_json_block(text):
 import random
 import json
 import argparse
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
 
 # Setup logging
 logging.basicConfig(
@@ -130,32 +134,74 @@ parser = argparse.ArgumentParser(description='Generate QA data for VLSP track 6'
 parser.add_argument('--start_index', type=int, default=0, help='Starting index for processing')
 parser.add_argument('--end_index', type=int, default=None, help='Ending index for processing')
 parser.add_argument('--single_index', type=int, default=None, help='Process single index')
+parser.add_argument('--num_threads', type=int, default=4, help='Number of threads to use')
 args = parser.parse_args()
 
 # Determine range to process
 if args.single_index is not None:
     start_j = args.single_index
     end_j = args.single_index + 1
-    output_path = f"output_{start_j}.json"
+    output_path = f"output_{start_j}.jsonl"
     logger.info(f"Processing single index: {args.single_index}")
 elif args.end_index is not None:
     start_j = args.start_index
     end_j = args.end_index
-    output_path = f"output_{start_j}_{end_j-1}.json"
+    output_path = f"output_{start_j}_{end_j-1}.jsonl"
     logger.info(f"Processing range: {start_j} to {end_j-1}")
 else:
     start_j = args.start_index
     end_j = len(dataset['train'])
-    output_path = f"output_{start_j}_end.json"
+    output_path = f"output_{start_j}_end.jsonl"
     logger.info(f"Processing from index {start_j} to end of dataset")
 
 logger.info(f"Output will be saved to: {output_path}")
 
 # Create missing results file name
-missing_path = output_path.replace('.json', '_missing.json')
+missing_path = output_path.replace('.jsonl', '_missing.jsonl')
 logger.info(f"Missing indices will be saved to: {missing_path}")
 
-for j in range(start_j, end_j):
+# Create progress tracking file
+progress_path = output_path.replace('.jsonl', '_progress.txt')
+logger.info(f"Progress will be tracked in: {progress_path}")
+
+def load_processed_indices():
+    """Load list of already processed document indices"""
+    processed = set()
+    if os.path.exists(progress_path):
+        try:
+            with open(progress_path, 'r') as f:
+                for line in f:
+                    processed.add(int(line.strip()))
+            logger.info(f"Loaded {len(processed)} already processed indices from {progress_path}")
+        except Exception as e:
+            logger.warning(f"Could not load progress file: {e}")
+    return processed
+
+def save_progress(index):
+    """Save completed document index to progress file"""
+    with progress_lock:
+        with open(progress_path, 'a') as f:
+            f.write(f"{index}\n")
+
+# Load already processed indices
+processed_indices = load_processed_indices()
+
+# Thread-safe file writing
+output_lock = threading.Lock()
+missing_lock = threading.Lock()
+progress_lock = threading.Lock()
+
+def write_output(data, file_path, lock):
+    with lock:
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+def process_document(j, end_j):
+    # Skip if already processed
+    if j in processed_indices:
+        logger.info(f"Skipping document {j} - already processed")
+        return
+        
     logger.info(f"Processing document {j}/{end_j-1}")
     # 1. Lấy 1 đoạn tài liệu chính
     relevant1 = get_relevant(j)
@@ -164,9 +210,8 @@ for j in range(start_j, end_j):
     if relevant1 is None:
         logger.warning(f"Skipping document {j} due to get_relevant error")
         # Save missing index
-        with open(missing_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"missing_index": j, "error": "get_relevant_failed"}, ensure_ascii=False) + "\n")
-        continue
+        write_output({"missing_index": j, "error": "get_relevant_failed"}, missing_path, missing_lock)
+        return
 
     # 2. Sinh câu hỏi từ tài liệu chính
     for i in range(3):
@@ -189,8 +234,7 @@ for j in range(start_j, end_j):
             qa = qa_raw
         # Ghi nếu hợp lệ
         if isinstance(qa, dict):
-            with open(output_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(qa, ensure_ascii=False) + "\n")
+            write_output(qa, output_path, output_lock)
    
     
     # 3. Ghép thêm 1–3 tài liệu khác
@@ -210,8 +254,7 @@ for j in range(start_j, end_j):
         else:
             logger.warning(f"Skipping document {j} due to get_relevant error")
             # Save missing index
-            with open(missing_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"missing_index": j, "error": "get_relevant_failed"}, ensure_ascii=False) + "\n")
+            write_output({"missing_index": random_number, "error": "get_relevant_failed"}, missing_path, missing_lock)
             continue
 
     # 4. Sinh câu hỏi từ đoạn ghép
@@ -235,8 +278,31 @@ for j in range(start_j, end_j):
             qa = qa_raw
         # Ghi nếu hợp lệ
         if isinstance(qa, dict):
-            with open(output_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(qa, ensure_ascii=False) + "\n")
+            write_output(qa, output_path, output_lock)
    
+    # Mark as completed
+    save_progress(j)
     logger.info(f"✅ Đã sinh và ghi dữ liệu cho mẫu #{j}")
     print(f"✅ Đã sinh và ghi dữ liệu cho mẫu #{j}")
+
+# Filter out already processed documents
+remaining_indices = [j for j in range(start_j, end_j) if j not in processed_indices]
+logger.info(f"Found {len(remaining_indices)} documents to process (out of {end_j - start_j} total)")
+
+if not remaining_indices:
+    logger.info("All documents have already been processed!")
+else:
+    # Run multithreaded processing
+    logger.info(f"Starting processing with {args.num_threads} threads")
+    with ThreadPoolExecutor(max_workers=args.num_threads) as executor:
+        # Submit all tasks
+        futures = [executor.submit(process_document, j, end_j) for j in remaining_indices]
+        
+        # Wait for completion and handle any exceptions
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Thread execution error: {e}")
+
+logger.info("Processing completed")
