@@ -23,36 +23,21 @@ from datasets import load_dataset
 dataset = load_dataset("thailevann/vlsp_legal_pretrain")
 
 def gen_data(relevant_doc, task):
-    prompt = f"""
-    Bạn là một trợ lý pháp lý. Dựa vào tài liệu sau, hãy tạo một câu hỏi pháp lý thuộc dạng: {task},  
-    và cung cấp hai bộ câu trả lời:
-    
-    1. Một **câu trả lời đúng**, kèm theo **lý do hợp lý (chosen_reason)**: viện dẫn chính xác điều luật, phân tích đúng trọng tâm nội dung.
-    
-    2. Một **câu trả lời sai**, kèm theo **một chuỗi suy nghĩ sai (rejected_reason)**: đây là một quá trình suy luận **có vẻ hợp lý nhưng dẫn đến sai lệch**.  
-    `rejected_reason` phải thể hiện cách một người đọc hiểu nhầm luật, **suy diễn sai**, hoặc **suy nghĩ chưa đầy đủ**, từ đó dẫn đến câu trả lời sai.
-    
-    ⚠️ Lưu ý quan trọng:
-    - `rejected_reason` KHÔNG phải là lời phê bình hay đánh giá câu sai.
-    - KHÔNG được nói kiểu: “Câu này sai vì...”, “Điều đó không đúng...”, “Luật nói rõ rằng...”
-    - Thay vào đó, hãy viết theo phong cách **người đang tự suy nghĩ một cách chủ quan**, chẳng hạn:
-        - "Tôi thấy trong luật có nhắc đến đầu tư, nên tôi cho rằng mọi hình thức đầu tư đều bị điều chỉnh, kể cả đầu tư bất động sản."
-        - "Tôi nghĩ vì luật không nói rõ, nên điều đó không thuộc phạm vi điều chỉnh."
-    
-    📚 Tài liệu pháp lý:
-    \"\"\"
-    {relevant_doc}
-    \"\"\"
-    
-    Trả về dưới dạng JSON:
-    {{
-        "question": "...",
-        "chosen_answer": "...",
-        "chosen_reason": "...",
-        "rejected_answer": "...",
-        "rejected_reason": "..."
-    }}
-    """
+    prompt = f"""Bạn là một trợ lý pháp lý. Hãy tạo một câu hỏi trắc nghiệm pháp luật dựa trên tài liệu sau:
+
+{relevant_doc}
+
+Hãy tạo một câu hỏi trắc nghiệm với 4 lựa chọn A, B, C, D. Câu hỏi phải bao gồm cả nội dung câu hỏi và 4 lựa chọn.
+
+Trả về kết quả dưới dạng JSON với định dạng chính xác như sau:
+
+{{
+  "question": "Câu hỏi về nội dung pháp luật?\\nA. Lựa chọn thứ nhất\\nB. Lựa chọn thứ hai\\nC. Lựa chọn thứ ba\\nD. Lựa chọn thứ tư",
+  "chosen_answer": "A",
+  "chosen_reason": "Lý do tại sao đáp án đúng dựa trên điều luật cụ thể",
+  "rejected_answer": "B",
+  "rejected_reason": "Suy nghĩ chủ quan dẫn đến chọn sai: Tôi thấy trong luật có nhắc đến... nên tôi cho rằng..."
+}}"""
 
 
 
@@ -214,13 +199,16 @@ def process_document(j, end_j):
         return
 
     # 2. Sinh câu hỏi từ tài liệu chính
-    for i in range(3):
-        if i == 0:
-            task = "Đánh giá tính hữu ích của trích dẫn pháp luật: Xác định liệu một trích dẫn pháp luật có hữu ích để trả lời câu hỏi pháp lý hay không (phân loại Đúng/Sai)"
-        elif i == 1:
-            task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm nhiều lựa chọn"
-        else:
-            task = "Câu hỏi tự luận pháp luật: Sinh câu trả lời tự do, đầy đủ và mạch lạc cho các câu hỏi pháp lý bằng tiếng Việt"
+    # for i in range(3):
+    #     if i == 0:
+    #         task = "Đánh giá tính hữu ích của trích dẫn pháp luật: Xác định liệu một trích dẫn pháp luật có hữu ích để trả lời câu hỏi pháp lý hay không (phân loại Đúng/Sai)"
+    #     elif i == 1:
+    #         task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm nhiều lựa chọn"
+    #     else:
+    #         task = "Câu hỏi tự luận pháp luật: Sinh câu trả lời tự do, đầy đủ và mạch lạc cho các câu hỏi pháp lý bằng tiếng Việt"
+    
+    for i in range(1):
+        task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm về nội dung của câu hỏi và phải chứa các câu trả lời lựa chọn trong câu hỏi"
 
         qa_raw = gen_data(relevant1, task)
         if isinstance(qa_raw, str):
@@ -228,7 +216,9 @@ def process_document(j, end_j):
                 qa = clean_json_block(qa_raw)
             except Exception as e:
                 logger.error(f"❌ Lỗi parse JSON tại index {j}, task: {task}: {e}")
+                logger.error(f"Raw output: {qa_raw}")
                 print(f"❌ Lỗi parse JSON tại index {j}, task: {task}: {e}")
+                print(f"Raw output: {qa_raw}")
                 continue
         else:
             qa = qa_raw
@@ -258,21 +248,27 @@ def process_document(j, end_j):
             continue
 
     # 4. Sinh câu hỏi từ đoạn ghép
-    for i in range(3):
-        if i == 0:
-            task = "Đánh giá tính hữu ích của trích dẫn pháp luật: Xác định liệu một trích dẫn pháp luật có hữu ích để trả lời câu hỏi pháp lý hay không (phân loại Đúng/Sai)"
-        elif i == 1:
-            task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm nhiều lựa chọn"
-        else:
-            task = "Câu hỏi tự luận pháp luật: Sinh câu trả lời tự do, đầy đủ và mạch lạc cho các câu hỏi pháp lý bằng tiếng Việt"
+    # for i in range(3):
+    #     if i == 0:
+    #         task = "Đánh giá tính hữu ích của trích dẫn pháp luật: Xác định liệu một trích dẫn pháp luật có hữu ích để trả lời câu hỏi pháp lý hay không (phân loại Đúng/Sai)"
+    #     elif i == 1:
+    #         task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm nhiều lựa chọn"
+    #     else:
+    #         task = "Câu hỏi tự luận pháp luật: Sinh câu trả lời tự do, đầy đủ và mạch lạc cho các câu hỏi pháp lý bằng tiếng Việt"
 
+    for i in range(1):
+        task = "Câu hỏi trắc nghiệm pháp luật: Kiểm tra kiến thức pháp luật Việt Nam thông qua các câu hỏi trắc nghiệm về nội dung của câu hỏi và phải chứa các câu trả lời lựa chọn trong câu hỏi"
+
+        # 4.1. Sinh câu hỏi từ đoạn ghép
         qa_raw = gen_data(relevant_str, task)
         if isinstance(qa_raw, str):
             try:
                 qa = clean_json_block(qa_raw)
             except Exception as e:
                 logger.error(f"❌ Lỗi parse JSON tại index {j}, task: {task}: {e}")
+                logger.error(f"Raw output: {qa_raw}")
                 print(f"❌ Lỗi parse JSON tại index {j}, task: {task}: {e}")
+                print(f"Raw output: {qa_raw}")
                 continue
         else:
             qa = qa_raw
