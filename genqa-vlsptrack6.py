@@ -21,11 +21,7 @@ model.eval()
 import os
 
 from huggingface_hub import login
-hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
-if hf_token:
-    login(hf_token)
-else:
-    logging.warning("HF_TOKEN not set; proceeding without Hugging Face login")
+login(os.getenv("HF_TOKEN"))
 
 from datasets import load_dataset
 dataset = load_dataset("thailevann/vlsp_legal_pretrain")
