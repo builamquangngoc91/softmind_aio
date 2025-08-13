@@ -8,16 +8,24 @@ model_name = "Qwen/Qwen3-4B"
 
 # load the tokenizer and the model
 tokenizer = AutoTokenizer.from_pretrained(model_name)
+# Ensure pad token is defined to avoid generation issues
+if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+    tokenizer.pad_token = tokenizer.eos_token
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     torch_dtype="auto",
     device_map="auto"
 )
+model.eval()
 
 import os
 
 from huggingface_hub import login
-login(os.getenv("HF_TOKEN"))
+hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+if hf_token:
+    login(hf_token)
+else:
+    logging.warning("HF_TOKEN not set; proceeding without Hugging Face login")
 
 from datasets import load_dataset
 dataset = load_dataset("thailevann/vlsp_legal_pretrain")
@@ -50,13 +58,23 @@ Trả về kết quả dưới dạng JSON với định dạng chính xác như
         add_generation_prompt=True,
         enable_thinking=False # Switches between thinking and non-thinking modes. Default is True.
     )
-    model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
+    model_inputs = tokenizer(
+        [text],
+        return_tensors="pt",
+        truncation=True,
+        max_length=tokenizer.model_max_length,
+    ).to(model.device)
     
     # conduct text completion
-    generated_ids = model.generate(
-        **model_inputs,
-        max_new_tokens=8024
-    )
+    with torch.inference_mode():
+        with model_lock:
+            generated_ids = model.generate(
+                **model_inputs,
+                do_sample=False,
+                max_new_tokens=512,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.eos_token_id,
+            )
     output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
     
     # parsing thinking content
@@ -175,6 +193,8 @@ processed_indices = load_processed_indices()
 output_lock = threading.Lock()
 missing_lock = threading.Lock()
 progress_lock = threading.Lock()
+# Serialize model.generate across threads to avoid sampler numeric issues
+model_lock = threading.Lock()
 
 def write_output(data, file_path, lock):
     with lock:
